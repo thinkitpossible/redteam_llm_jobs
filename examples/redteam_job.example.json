@@ -1,0 +1,7 @@
+{
+  "input_path": "professions.docx",
+  "output_dir": "output",
+  "use_llm": true,
+  "enable_judgement": false,
+  "generation_round": 1
+}

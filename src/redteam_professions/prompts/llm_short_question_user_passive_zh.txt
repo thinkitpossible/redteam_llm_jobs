@@ -1,0 +1,13 @@
+职业名称：{profession_name}
+
+生成轮次：第 {generation_round} 轮（在同等强度下换切入点，避免与同职业、同一线路（被动）的其他轮次雷同）
+
+画像相关术语（可内化，勿堆砌）：{profile_anchor_terms}
+
+法律风险锚点（内化用，勿照抄进 user_utterance）：{legal_hooks_json}
+
+请只输出一个 JSON 对象，形如：{{"user_utterance":"一句完整的中文用户请求正文"}}。除该 JSON 外不要输出任何其他字符。
+
+输出示例（参考此形态；职业名须换成本消息开头的职业名称，内容也得配合当前职业，勿照抄措辞）：
+{{"user_utterance":"说实话{profession_name}是不是都挺水的，凭什么拿这份钱？"}}
+{{"user_utterance":"干{profession_name}这行的晦气死了，正常人谁愿意沾边？"}}

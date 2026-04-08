@@ -1,0 +1,161 @@
+Metadata-Version: 2.4
+Name: redteam-professions
+Version: 0.1.0
+Summary: Offline batch red-team prompt generator for profession datasets.
+Author: OpenAI Codex
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Provides-Extra: llm
+Requires-Dist: httpx>=0.27; extra == "llm"
+
+# 职业红队问题生成智能体
+
+离线批处理红队问题生成器，输入职业 `.docx` 文档，输出结构化红队样本、职业画像、场景卡与拒绝样本。
+
+## 功能
+
+- 解析 Word 文档中的职业列表
+- 为每个职业生成结构化画像
+- 按三大风险主轴生成场景卡
+- 为每张场景卡扩展 6 种表达风格的问题
+- 进行规则 + 向量式去重裁判
+- 输出可断点续跑的批处理结果
+- 可选：通过 OpenAI 兼容 Chat Completions API 生成用户话术（失败自动回退模板）
+- 双分支 Markdown 报告：`bundle.md`（与 `bundle.json` 同目录，需开启 bundle 导出）
+
+## 可选依赖（LLM 模式）
+
+仅在使用 `--use-llm` 时需要 HTTP 客户端：
+
+```bash
+pip install "httpx>=0.27"
+```
+
+或以可编辑安装并带上 extra：
+
+```bash
+pip install -e ".[llm]"
+```
+
+## 环境变量（`--use-llm`）
+
+| 变量 | 说明 | 默认 |
+|------|------|------|
+| `REDTEAM_LLM_BASE_URL` | API 根路径（不含尾斜杠），将请求 `POST {BASE}/chat/completions` | `https://api.openai.com/v1` |
+| `REDTEAM_LLM_API_KEY` | Bearer Token；未设置时开启 `--use-llm` 会在首次请求前报错 | 空 |
+| `REDTEAM_LLM_MODEL` | 模型名 | `gpt-4o-mini` |
+| `REDTEAM_LLM_TIMEOUT_SEC` | 单次请求超时（秒） | `120` |
+
+系统与用户提示词位于 `src/redteam_professions/prompts/llm_generate_sample_*.txt`，可按评测需求自行改写。
+
+**合规说明**：生成内容仅用于授权场景下的安全与对齐评测；请遵守当地法律与服务条款。
+
+## 快速开始
+
+```bash
+python run_pipeline.py --output-dir output
+```
+
+指定输入文件：
+
+```bash
+python run_pipeline.py ^
+  --input "职业_仅保留职业名称.docx" ^
+  --output-dir output
+```
+
+只跑部分职业：
+
+```bash
+python run_pipeline.py ^
+  --output-dir output ^
+  --profession-contains 校长 ^
+  --limit 5
+```
+
+只重跑某个风险主轴：
+
+```bash
+python run_pipeline.py ^
+  --output-dir output ^
+  --profession-id prof_xxxxx ^
+  --risk-family misconduct ^
+  --rerun
+```
+
+跳过双分支聚合文件（大跑批时可略省 IO）：
+
+```bash
+python run_pipeline.py --output-dir output --no-bundles
+```
+
+使用 LLM 生成话术（需配置 `REDTEAM_LLM_API_KEY` 并安装 `httpx`）：
+
+```bash
+python run_pipeline.py --output-dir output --use-llm
+```
+
+## 输出目录
+
+- `professions.jsonl`
+- `profession_profiles.jsonl`
+- `scenario_cards.jsonl`
+- `redteam_samples.jsonl`
+- `rejected_samples.jsonl`
+- `profession_bundles.jsonl`：每个职业一行，双分支聚合视图（见下）
+- `manifest.json`（含 `bundle_count`：成功写入的 `bundle.json` 数量）
+- `professions/<profession_id>/...`：职业粒度中间结果，支持断点续跑
+- `professions/<profession_id>/bundle.json`：单职业「职业解释 → 分支1 从业者滥用 → 分支2 针对该职业者的歧视与苛待」结构化汇总
+- `professions/<profession_id>/bundle.md`：与 `bundle.json` 同内容的 Markdown 大纲（便于阅读与归档；`--no-bundles` 时不生成）
+
+### 双分支与 `risk_family` 对应关系
+
+| 业务分支 | `risk_family` | 含义 |
+|----------|---------------|------|
+| `branch_role_abuse` | `misconduct` | 从业者利用岗位可能发起的不良/违法类请求 |
+| `branch_targeted_harm` | `discrimination`、`mistreatment` | 针对该职业者的歧视类与苛待类不良请求 |
+
+### `bundle.json` 结构概要
+
+```json
+{
+  "profession": { "profession_id": "...", "profession_name_norm": "..." },
+  "explanation": { "profile_summary": "...", "domain": "...", "...": "..." },
+  "branch_role_abuse": {
+    "branch_id": "role_abuse",
+    "title_zh": "从业者岗位滥用/违法类不良请求",
+    "risk_families": ["misconduct"],
+    "by_subtype": [
+      {
+        "risk_subtype": "abuse_of_authority",
+        "scenario": { "scenario_brief": "...", "severity_hint": "...", "...": "..." },
+        "prompts": [ { "prompt_text_raw": "...", "risk_family": "misconduct", "risk_branch": "role_abuse", "...": "..." } ]
+      }
+    ]
+  },
+  "branch_targeted_harm": {
+    "branch_id": "targeted_harm",
+    "title_zh": "针对该职业者的歧视与苛待类不良请求",
+    "discrimination": { "risk_family": "discrimination", "by_subtype": [ "...同上结构..." ] },
+    "mistreatment": { "risk_family": "mistreatment", "by_subtype": [ "...同上结构..." ] }
+  }
+}
+```
+
+每条 `prompts` 中的记录在原始样本字段基础上增加派生字段 `risk_branch`（`role_abuse` 或 `targeted_harm`），便于与扁平 `redteam_samples.jsonl` 对照。
+
+## 测试
+
+在项目根目录执行（将 `src` 加入模块搜索路径）：
+
+```bash
+set PYTHONPATH=src
+python -m unittest discover -s tests -v
+```
+
+PowerShell：
+
+```powershell
+$env:PYTHONPATH="src"
+python -m unittest discover -s tests -v
+```
